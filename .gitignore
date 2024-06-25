@@ -1,0 +1,4 @@
+AutoGpuAffinity/lava.log
+AutoGpuAffinity/captures
+*.pyc
+build/
