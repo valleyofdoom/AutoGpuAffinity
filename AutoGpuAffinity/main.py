@@ -189,7 +189,7 @@ def display_results(csv_directory: str, enable_color: bool) -> None:
 
             formatted_results[_cpu][metric] = new_value
 
-    os.system("<nul set /p=\x1B[8;50;1000t")
+    os.system("<nul set /p=\x1b[8;50;1000t")
 
     print_table(formatted_results)
 
@@ -352,10 +352,10 @@ def main() -> int:
             f"""        Session Directory        {session_directory}
         Cache Duration           {cfg.settings.cache_duration}
         Benchmark Duration       {cfg.settings.benchmark_duration}
-        Benchmark CPUs           {"All" if not cfg.settings.custom_cpus else ','.join([str(cpu) for cpu in benchmark_cpus])}
+        Benchmark CPUs           {"All" if not cfg.settings.custom_cpus else ",".join([str(cpu) for cpu in benchmark_cpus])}
         Subject                  {os.path.splitext(api_binname)[0]}
         Estimated Time           {estimated_time}
-        Estimated End Time       {finish_time.strftime('%H:%M:%S')}
+        Estimated End Time       {finish_time.strftime("%H:%M:%S")}
         Load Afterburner         {cfg.msi_afterburner.profile > 0}
         DPC/ISR Logging          {cfg.xperf.enabled}
         Save ETLs                {cfg.xperf.save_etls}
