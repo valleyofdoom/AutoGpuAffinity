@@ -16,6 +16,7 @@ from typing import NoReturn
 import consts
 import framerate
 import psutil
+import setupapi
 import wmi
 from config import Api, Config
 
@@ -28,7 +29,65 @@ def start_afterburner(path: str, profile: int) -> None:
         process.kill()
 
 
-def apply_affinity(hwids: list[str], cpu: int = -1, apply: bool = True) -> None:
+def set_driver_state(hwid: str, state: int) -> int:
+    device_info_handle = setupapi.SetupDiGetClassDevsW(
+        None, ctypes.c_wchar_p(hwid), None, setupapi.DIGCF_ALLCLASSES | setupapi.DIGCF_DEVICEINTERFACE
+    )
+
+    if device_info_handle == -1:
+        LOG_CLI.error(f"SetupDiGetClassDevsW failed: {ctypes.GetLastError()}")
+        return 1
+
+    dev_info_data = setupapi.SP_DEVINFO_DATA()
+    dev_info_data.cbSize = ctypes.sizeof(setupapi.SP_DEVINFO_DATA)
+
+    if not setupapi.SetupDiEnumDeviceInfo(device_info_handle, 0, ctypes.byref(dev_info_data)):
+        LOG_CLI.error(f"SetupDiEnumDeviceInfo failed: {ctypes.GetLastError()}")
+        return 1
+
+    params = setupapi.SP_PROPCHANGE_PARAMS()
+
+    params.ClassInstallHeader.cbSize = ctypes.sizeof(params.ClassInstallHeader)
+    params.ClassInstallHeader.InstallFunction = setupapi.DIF_PROPERTYCHANGE
+    params.StateChange = state
+    params.Scope = setupapi.DICS_FLAG_GLOBAL
+    params.HwProfile = 0
+
+    if not setupapi.SetupDiSetClassInstallParamsA(
+        device_info_handle,
+        ctypes.byref(dev_info_data),
+        ctypes.byref(params.ClassInstallHeader),
+        ctypes.sizeof(params),
+    ):
+        LOG_CLI.error(f"SetupDiSetClassInstallParamsA failed: {ctypes.GetLastError()}")
+        return 1
+
+    if not setupapi.SetupDiCallClassInstaller(
+        setupapi.DIF_PROPERTYCHANGE, device_info_handle, ctypes.byref(dev_info_data)
+    ):
+        LOG_CLI.error(f"SetupDiCallClassInstaller failed: {ctypes.GetLastError()}")
+        return 1
+
+    return 0
+
+
+def restart_driver(hwid: str) -> int:
+    if set_driver_state(hwid, setupapi.DICS_DISABLE) != 0:
+        LOG_CLI.error("failed to disable driver while restarting")
+        return 1
+
+    time.sleep(2)
+
+    if set_driver_state(hwid, setupapi.DICS_ENABLE) != 0:
+        LOG_CLI.error("failed to enable driver while restarting")
+        return 1
+
+    time.sleep(2)
+
+    return 0
+
+
+def apply_affinity(hwids: list[str], cpu: int = -1, apply: bool = True) -> int:
     for hwid in hwids:
         policy_path = f"SYSTEM\\ControlSet001\\Enum\\{hwid}\\Device Parameters\\Interrupt Management\\Affinity Policy"
 
@@ -60,10 +119,11 @@ def apply_affinity(hwids: list[str], cpu: int = -1, apply: bool = True) -> None:
             except FileNotFoundError:
                 LOG_CLI.debug("affinity policy has already been removed for %s", hwid)
 
-    subprocess.run(
-        ["bin\\restart64\\restart64.exe", "/q"],
-        check=True,
-    )
+        if restart_driver(hwid) != 0:
+            LOG_CLI.error("failed to restart driver")
+            return 1
+
+    return 0
 
 
 def print_table(formatted_results: dict[str, dict[str, str]]):
@@ -298,7 +358,10 @@ def main() -> int:
             LOG_CLI.error("invalid affinity specified %d", args.apply_affinity)
             return 1
 
-        apply_affinity(hwids_gpu, args.apply_affinity)
+        if apply_affinity(hwids_gpu, args.apply_affinity) != 0:
+            LOG_CLI.error(f"failed to apply affinity to CPU {args.apply_affinity}")
+            return 1
+
         LOG_CLI.info("set gpu driver affinity to: CPU %d", args.apply_affinity)
         return 0
 
@@ -403,7 +466,10 @@ def main() -> int:
     for cpu in benchmark_cpus:
         LOG_CLI.info("benchmarking CPU %d", cpu)
 
-        apply_affinity(hwids_gpu, cpu)
+        if apply_affinity(hwids_gpu, cpu) != 0:
+            LOG_CLI.error(f"failed to apply affinity to CPU {cpu}")
+            return 1
+
         time.sleep(5)
 
         if (profile := cfg.msi_afterburner.profile) > 0:
@@ -451,7 +517,10 @@ def main() -> int:
                 "csv log unsuccessful, this may be due to a missing dependency or windows component",
             )
             shutil.rmtree(session_directory)
-            apply_affinity(hwids_gpu, apply=False)
+            if apply_affinity(hwids_gpu, apply=False) != 0:
+                LOG_CLI.error("failed to reset affinity")
+                return 1
+
             return 1
 
         if cfg.xperf.enabled:
@@ -483,7 +552,9 @@ def main() -> int:
             except subprocess.CalledProcessError:
                 LOG_CLI.error("unable to generate dpcisr report")
                 shutil.rmtree(session_directory)
-                apply_affinity(hwids_gpu, apply=False)
+                if apply_affinity(hwids_gpu, apply=False) != 0:
+                    LOG_CLI.error("failed to reset affinity")
+                    return 1  # return 1 after anyway
                 return 1
 
             if not cfg.xperf.save_etls:
@@ -492,7 +563,9 @@ def main() -> int:
         kill_processes("xperf.exe", api_binname, presentmon_binary)
 
     # cleanup
-    apply_affinity(hwids_gpu, apply=False)
+    if apply_affinity(hwids_gpu, apply=False) != 0:
+        LOG_CLI.error("failed to reset affinity")
+        return 1
 
     if os.path.exists("C:\\kernel.etl"):
         os.remove("C:\\kernel.etl")
