@@ -435,11 +435,14 @@ def main() -> int:
     if cfg.settings.api == Api.LIBLAVA:
         subject_args = [
             f"--fullscreen={int(cfg.liblava.fullscreen)}",
-            f"--width={cfg.liblava.x_resolution}",
-            f"--height={cfg.liblava.y_resolution}",
             f"--fps_cap={cfg.liblava.fps_cap}",
             f"--triple_buffering={int(cfg.liblava.triple_buffering)}",
         ]
+        if cfg.liblava.x_resolution and cfg.liblava.y_resolution:
+            subject_args += [
+                f"--width={cfg.liblava.x_resolution}",
+                f"--height={cfg.liblava.y_resolution}",
+            ]
 
     # this will create all of the required folders
     os.makedirs(f"{session_directory}\\CSVs", exist_ok=True)
