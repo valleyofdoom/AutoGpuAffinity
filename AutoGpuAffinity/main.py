@@ -92,9 +92,8 @@ def apply_affinity(hwids: list[str], cpu: int = -1, apply: bool = True) -> int:
         policy_path = f"SYSTEM\\ControlSet001\\Enum\\{hwid}\\Device Parameters\\Interrupt Management\\Affinity Policy"
 
         if apply and cpu > -1:
-            decimal_affinity = 1 << cpu
-            bin_affinity = bin(decimal_affinity).lstrip("0b")
-            le_hex = int(bin_affinity, 2).to_bytes(8, "little").rstrip(b"\x00")
+            mask = 1 << cpu
+            le_hex = mask.to_bytes(8, "little").rstrip(b"\x00")
 
             with winreg.CreateKey(winreg.HKEY_LOCAL_MACHINE, policy_path) as key:
                 winreg.SetValueEx(key, "DevicePolicy", 0, winreg.REG_DWORD, 4)
